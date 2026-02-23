@@ -14,7 +14,6 @@ import (
 func getStoragePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		// Fallback to local if home is unavailable
 		return filepath.Join("storage", "storage.csv")
 	}
 	return filepath.Join(home, ".todo-list-go", "storage.csv")
@@ -28,14 +27,11 @@ func LoadTasks() []types.Task {
 		if os.IsNotExist(err) {
 			return []types.Task{}
 		}
-		abs, _ := filepath.Abs(path)
-		wd, _ := os.Getwd()
-		slog.Error("Error opening storage file", "path", path, "abs", abs, "wd", wd, "error", err)
-		return nil
+		slog.Error("Error opening storage file", "error", err)
+		return []types.Task{}
 	}
 	defer file.Close()
 
-	// Check if file is empty
 	info, err := file.Stat()
 	if err == nil && info.Size() == 0 {
 		return []types.Task{}
@@ -45,19 +41,25 @@ func LoadTasks() []types.Task {
 	records, err := reader.ReadAll()
 	if err != nil {
 		slog.Error("Error reading CSV", "error", err)
-		return nil
+		return []types.Task{}
 	}
 
 	var tasks []types.Task
+
 	for i, record := range records {
-		// Skip header row and invalid records
-		if i == 0 || len(record) < 3 {
+		// Skip header
+		if i == 0 {
+			continue
+		}
+
+		if len(record) < 3 {
+			slog.Warn("Skipping invalid CSV row", "row", i+1)
 			continue
 		}
 
 		id, err := strconv.Atoi(record[0])
 		if err != nil {
-			slog.Error("Error parsing ID in CSV", "row", i+1, "id_value", record[0], "error", err)
+			slog.Warn("Skipping row with invalid ID", "row", i+1, "value", record[0])
 			continue
 		}
 
@@ -67,92 +69,106 @@ func LoadTasks() []types.Task {
 			CurrStatus: types.Status(record[2]),
 		})
 	}
+
 	return tasks
 }
 
 func SaveTasks(tasks []types.Task) {
 	path := getStoragePath()
 	dir := filepath.Dir(path)
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		slog.Error("Error creating directory", "dir", dir, "error", err)
+		slog.Error("Error creating storage directory", "error", err)
 		return
 	}
 
 	file, err := os.Create(path)
 	if err != nil {
-		abs, _ := filepath.Abs(path)
-		wd, _ := os.Getwd()
-		slog.Error("Error creating file", "path", path, "abs", abs, "wd", wd, "error", err)
+		slog.Error("Error creating storage file", "error", err)
 		return
 	}
 	defer file.Close()
+
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
 
-	writer.Write([]string{"id", "text", "done"})
+	// Write header
+	if err := writer.Write([]string{"id", "text", "done"}); err != nil {
+		slog.Error("Error writing header", "error", err)
+		return
+	}
 
 	for _, task := range tasks {
-		writer.Write([]string{strconv.Itoa(task.ID), task.Desc, string(task.CurrStatus)})
+		err := writer.Write([]string{
+			strconv.Itoa(task.ID),
+			task.Desc,
+			string(task.CurrStatus),
+		})
+		if err != nil {
+			slog.Error("Error writing task to CSV", "error", err)
+		}
 	}
 }
 
 func AddTask(taskDesc string) []types.Task {
 	tasks := LoadTasks()
-	if tasks == nil {
-		slog.Error("Cannot add task: failed to load existing tasks")
-		return nil
+
+	// Find max ID
+	maxID := 0
+	for _, t := range tasks {
+		if t.ID > maxID {
+			maxID = t.ID
+		}
 	}
+
 	newTask := types.Task{
-		ID:         len(tasks) + 1,
+		ID:         maxID + 1,
 		Desc:       taskDesc,
 		CurrStatus: types.Pending,
 	}
+
 	tasks = append(tasks, newTask)
 	SaveTasks(tasks)
+
+	slog.Info("Task added", "id", newTask.ID)
 	return tasks
 }
 
 func ViewTasks() {
 	tasks := LoadTasks()
-	if tasks == nil {
-		slog.Error("Cannot view tasks: failed to load task list")
-		return
-	}
+
 	if len(tasks) == 0 {
 		fmt.Println("No tasks yet. Use 'add' to create one.")
 		return
 	}
+
 	for _, task := range tasks {
-		sts := " "
+		status := " "
 		if task.CurrStatus == types.Completed {
-			sts = "✓"
+			status = "✓"
 		}
-		fmt.Printf("[%s] %d. %s\n", sts, task.ID, task.Desc)
+		fmt.Printf("[%s] %d. %s\n", status, task.ID, task.Desc)
 	}
 }
 
 func MarkDone(id int) {
 	tasks := LoadTasks()
-	if tasks == nil {
-		slog.Error("Cannot mark task: failed to load task list")
-		return
-	}
+
 	for i, task := range tasks {
 		if task.ID == id {
 			tasks[i].CurrStatus = types.Completed
-			slog.Info("Task marked as done", "id", id)
 			SaveTasks(tasks)
+			slog.Info("Task marked as done", "id", id)
 			return
 		}
 	}
+
 	slog.Error("Task not found", "id", id)
 }
+
 func DeleteTask(id int) {
 	tasks := LoadTasks()
-	if tasks == nil {
-		slog.Error("Cannot delete task: failed to load task list")
-		return
-	}
+
 	for i, task := range tasks {
 		if task.ID == id {
 			tasks = append(tasks[:i], tasks[i+1:]...)
@@ -161,5 +177,6 @@ func DeleteTask(id int) {
 			return
 		}
 	}
+
 	slog.Error("Task not found", "id", id)
 }
