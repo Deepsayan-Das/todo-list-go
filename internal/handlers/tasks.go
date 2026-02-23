@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/Deepsayan-Das/todo-list-go/internal/types"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func getStoragePath() string {
@@ -130,7 +131,6 @@ func AddTask(taskDesc string) []types.Task {
 	tasks = append(tasks, newTask)
 	SaveTasks(tasks)
 
-	slog.Info("Task added", "id", newTask.ID)
 	return tasks
 }
 
@@ -138,17 +138,38 @@ func ViewTasks() {
 	tasks := LoadTasks()
 
 	if len(tasks) == 0 {
-		fmt.Println("No tasks yet. Use 'add' to create one.")
+		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#767676")).Italic(true).Render("No tasks yet. Use 'add' to create one."))
 		return
 	}
 
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7D56F4")).
+		Bold(true).
+		Underline(true).
+		MarginBottom(1)
+
+	fmt.Println(headerStyle.Render("YOUR TASKS"))
+
+	doneStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575"))
+	pendingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#767676"))
+	idStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA")).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+
 	for _, task := range tasks {
-		status := " "
+		var statusStr string
+		var style lipgloss.Style
+
 		if task.CurrStatus == types.Completed {
-			status = "✓"
+			statusStr = doneStyle.Render("✓")
+			style = lipgloss.NewStyle().Strikethrough(true).Foreground(lipgloss.Color("#767676"))
+		} else {
+			statusStr = pendingStyle.Render("○")
+			style = descStyle
 		}
-		fmt.Printf("[%s] %d. %s\n", status, task.ID, task.Desc)
+
+		fmt.Printf("[%s] %s. %s\n", statusStr, idStyle.Render(strconv.Itoa(task.ID)), style.Render(task.Desc))
 	}
+	fmt.Println()
 }
 
 func MarkDone(id int) {
@@ -158,12 +179,12 @@ func MarkDone(id int) {
 		if task.ID == id {
 			tasks[i].CurrStatus = types.Completed
 			SaveTasks(tasks)
-			slog.Info("Task marked as done", "id", id)
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true).PaddingLeft(1).Render(fmt.Sprintf("✓ Task %d marked as done", id)))
 			return
 		}
 	}
 
-	slog.Error("Task not found", "id", id)
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F87")).Bold(true).PaddingLeft(1).Render(fmt.Sprintf("Error: Task %d not found", id)))
 }
 
 func DeleteTask(id int) {
@@ -173,10 +194,10 @@ func DeleteTask(id int) {
 		if task.ID == id {
 			tasks = append(tasks[:i], tasks[i+1:]...)
 			SaveTasks(tasks)
-			slog.Info("Task deleted", "id", id)
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#04B575")).Bold(true).PaddingLeft(1).Render(fmt.Sprintf("✓ Task %d deleted permanently", id)))
 			return
 		}
 	}
 
-	slog.Error("Task not found", "id", id)
+	fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F87")).Bold(true).PaddingLeft(1).Render(fmt.Sprintf("Error: Task %d not found", id)))
 }
